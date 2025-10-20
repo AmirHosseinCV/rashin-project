@@ -74,36 +74,61 @@ class CarRacingWithObstacles(CarRacing, EzPickle):
     def _create_obstacles(self):
         track_indices = np.arange(10, len(self.track))
         if len(track_indices) < self.num_obstacles:
+            print(f"Not enough track tiles: {len(track_indices)}")
             return
 
         obstacle_indices = np.random.choice(
             track_indices, size=self.num_obstacles, replace=False
         )
         
-        for i in obstacle_indices:
-            tile_data = self.track[i][0]
-            if not isinstance(tile_data, (list, tuple)):
+        print(f"Creating {self.num_obstacles} obstacles on track with {len(self.track)} tiles")
+        
+        for idx, i in enumerate(obstacle_indices):
+            # Get the track tile - it's a tuple of (alpha, beta, x, y)
+            # where x, y are the world coordinates
+            if i >= len(self.track):
+                continue
+                
+            tile = self.track[i]
+            
+            # Track tiles have (alpha, beta, x, y) where x, y are world coordinates
+            if len(tile) < 4:
                 continue
             
-            valid_vertices = [v for v in tile_data if isinstance(v, (list, tuple)) and len(v) >= 2]
-            if len(valid_vertices) < 2:
-                continue
-
-            center_x = np.mean([v[0] for v in valid_vertices])
-            center_y = np.mean([v[1] for v in valid_vertices])
+            # Extract position from track tile
+            x = tile[2]
+            y = tile[3]
             
-            p1 = valid_vertices[0]
-            p2 = valid_vertices[1]
-            angle = np.arctan2(p2[1] - p1[1], p2[0] - p1[0])
+            # Get angle from track direction
+            # Look at next tile if available to determine direction
+            if i + 1 < len(self.track):
+                next_tile = self.track[i + 1]
+                dx = next_tile[2] - x
+                dy = next_tile[3] - y
+                angle = np.arctan2(dy, dx)
+            else:
+                angle = 0
             
+            # Create the obstacle at the track position
             obstacle_body = self.world.CreateStaticBody(
-                position=(center_x, center_y), angle=angle, userData="obstacle"
+                position=(x, y), 
+                angle=angle, 
+                userData="obstacle"
             )
-            obstacle_shape = polygonShape(box=(1.5, 0.5))
+            obstacle_shape = polygonShape(box=(3.0, 2.0))  # Made larger and more visible
             obstacle_body.CreateFixture(
-                fixtureDef(shape=obstacle_shape, density=1.0, friction=0.3)
+                fixtureDef(
+                    shape=obstacle_shape, 
+                    density=1.0, 
+                    friction=0.3,
+                    categoryBits=0x0010,  # Custom category
+                    maskBits=0xFFFF       # Collides with everything
+                )
             )
             self.obstacles.append(obstacle_body)
+            print(f"  Obstacle {idx+1}: position=({x:.2f}, {y:.2f}), angle={angle:.2f}")
+        
+        print(f"Successfully created {len(self.obstacles)} obstacles")
 
     def step(self, action):
         observation, reward, terminated, truncated, info = super().step(action)
@@ -112,6 +137,59 @@ class CarRacingWithObstacles(CarRacing, EzPickle):
             terminated = True
             self.collided_with_obstacle = False
         return observation, reward, terminated, truncated, info
+
+    def render(self):
+        # Call parent render first to create the surface
+        result = super().render()
+        
+        # Draw obstacles AFTER calling super().render()
+        if self.render_mode == 'human' and self.screen is not None and self.car is not None:
+            import pygame.draw
+            
+            # CarRacing constants - matching the source code exactly
+            WINDOW_W = 1000
+            WINDOW_H = 800
+            SCALE = 6.0  # World units to pixels
+            ZOOM = 2.7
+            PLAYFIELD = 2000 / SCALE / ZOOM  # Size of visible area in world units
+            
+            for obstacle in self.obstacles:
+                pos = obstacle.position
+                angle = obstacle.angle
+                
+                # Get the box shape vertices
+                fixture = obstacle.fixtures[0]
+                shape = fixture.shape
+                
+                # Transform each vertex to screen space
+                vertices = []
+                for v in shape.vertices:
+                    # Transform vertex to world coordinates
+                    cos_a = np.cos(angle)
+                    sin_a = np.sin(angle)
+                    world_x = pos[0] + cos_a * v[0] - sin_a * v[1]
+                    world_y = pos[1] + sin_a * v[0] + cos_a * v[1]
+                    
+                    # Transform to view coordinates (relative to car)
+                    view_x = (world_x - self.car.hull.position[0]) * SCALE * ZOOM
+                    view_y = (world_y - self.car.hull.position[1]) * SCALE * ZOOM
+                    
+                    # Transform to screen coordinates (note: y is inverted in screen space)
+                    screen_x = WINDOW_W / 2 + view_x
+                    screen_y = WINDOW_H / 4 - view_y  # Minus because screen Y goes down
+                    
+                    vertices.append((int(screen_x), int(screen_y)))
+                
+                # Only draw if at least one vertex is on screen
+                on_screen = any(0 <= x <= WINDOW_W and 0 <= y <= WINDOW_H for x, y in vertices)
+                if len(vertices) >= 3 and on_screen:
+                    pygame.draw.polygon(self.screen, (255, 0, 0), vertices, 0)  # Red fill
+                    pygame.draw.polygon(self.screen, (255, 255, 0), vertices, 5)  # Thick yellow border
+            
+            # Update the display
+            pygame.display.flip()
+        
+        return result
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
@@ -129,10 +207,40 @@ if __name__ == "__main__":
     total_reward = 0
 
     while not done:
-        action = np.array([0, 0.5, 0]) 
+        # Keyboard controls: [steering, gas, brake]
+        # steering: -1 (left) to +1 (right)
+        # gas: 0 to 1
+        # brake: 0 to 1
+        steering = 0.0
+        gas = 0.0
+        brake = 0.0
+        
+        # Get keyboard input
+        keys = pygame.key.get_pressed()
+        
+        # Arrow keys or WASD for control
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            steering = -1.0
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            steering = 1.0
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            gas = 1.0
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            brake = 0.8
+        
+        action = np.array([steering, gas, brake])
+        
         obs, reward, terminated, truncated, info = env.step(action)
         total_reward += reward
         done = terminated or truncated
+        
+        # Handle pygame events to keep window responsive
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                done = True
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    done = True
 
     print(f"Episode finished. Total Reward: {total_reward}")
     env.close()
