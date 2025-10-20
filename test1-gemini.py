@@ -150,8 +150,15 @@ class CarRacingWithObstacles(CarRacing, EzPickle):
             WINDOW_W = 1000
             WINDOW_H = 800
             SCALE = 6.0  # World units to pixels
-            ZOOM = 2.7
-            PLAYFIELD = 2000 / SCALE / ZOOM  # Size of visible area in world units
+            BASE_ZOOM = 2.7
+            # Use the environment's dynamic zoom if available to match camera behavior
+            CURRENT_ZOOM = getattr(self, 'zoom', BASE_ZOOM)
+
+            # Camera rotation (CarRacing rotates the view by the negative car angle)
+            cam_angle = -float(self.car.hull.angle)
+            cos_c = np.cos(cam_angle)
+            sin_c = np.sin(cam_angle)
+            car_pos = self.car.hull.position
             
             for obstacle in self.obstacles:
                 pos = obstacle.position
@@ -164,19 +171,23 @@ class CarRacingWithObstacles(CarRacing, EzPickle):
                 # Transform each vertex to screen space
                 vertices = []
                 for v in shape.vertices:
-                    # Transform vertex to world coordinates
+                    # Transform vertex to world coordinates (apply obstacle's rotation)
                     cos_a = np.cos(angle)
                     sin_a = np.sin(angle)
                     world_x = pos[0] + cos_a * v[0] - sin_a * v[1]
                     world_y = pos[1] + sin_a * v[0] + cos_a * v[1]
                     
-                    # Transform to view coordinates (relative to car)
-                    view_x = (world_x - self.car.hull.position[0]) * SCALE * ZOOM
-                    view_y = (world_y - self.car.hull.position[1]) * SCALE * ZOOM
+                    # Translate relative to car
+                    dx = world_x - car_pos[0]
+                    dy = world_y - car_pos[1]
+
+                    # Apply camera rotation to match base env rendering (keeps obstacles visually static)
+                    rx = cos_c * dx - sin_c * dy
+                    ry = sin_c * dx + cos_c * dy
                     
-                    # Transform to screen coordinates (note: y is inverted in screen space)
-                    screen_x = WINDOW_W / 2 + view_x
-                    screen_y = WINDOW_H / 4 - view_y  # Minus because screen Y goes down
+                    # Transform to screen coordinates
+                    screen_x = WINDOW_W / 2 + rx * SCALE * CURRENT_ZOOM
+                    screen_y = WINDOW_H / 4 - ry * SCALE * CURRENT_ZOOM  # Minus because screen Y goes down
                     
                     vertices.append((int(screen_x), int(screen_y)))
                 
