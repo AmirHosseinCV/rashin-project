@@ -196,6 +196,8 @@ register(
 
 if __name__ == "__main__":
     import numpy as np
+    import pygame
+    
     env = gym.make(
         "CarRacingObstacles-v0",
         render_mode="rgb_array",
@@ -210,20 +212,20 @@ if __name__ == "__main__":
     )
 
     keys_to_action = {
-        "w":   np.array([0.0, 0.7, 0.0], dtype=np.float32),
-        "a":   np.array([-1.0, 0.0, 0.0], dtype=np.float32),
-        "d":   np.array([1.0, 0.0, 0.0], dtype=np.float32),
-        "s":   np.array([0.0, 0.0, 1.0], dtype=np.float32),
-        "wa":  np.array([-1.0, 0.7, 0.0], dtype=np.float32),
-        "wd":  np.array([1.0,  0.7, 0.0], dtype=np.float32),
-        "sa":  np.array([-1.0, 0.0, 1.0], dtype=np.float32),
-        "sd":  np.array([1.0,  0.0, 1.0], dtype=np.float32),
+        pygame.K_UP:   np.array([0.0, 0.7, 0.0], dtype=np.float32),
+        pygame.K_LEFT:   np.array([-1.0, 0.0, 0.0], dtype=np.float32),
+        pygame.K_RIGHT:   np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        pygame.K_DOWN:   np.array([0.0, 0.0, 1.0], dtype=np.float32),
+        (pygame.K_UP, pygame.K_LEFT):  np.array([-1.0, 0.7, 0.0], dtype=np.float32),
+        (pygame.K_UP, pygame.K_RIGHT):  np.array([1.0,  0.7, 0.0], dtype=np.float32),
+        (pygame.K_DOWN, pygame.K_LEFT):  np.array([-1.0, 0.0, 1.0], dtype=np.float32),
+        (pygame.K_DOWN, pygame.K_RIGHT):  np.array([1.0,  0.0, 1.0], dtype=np.float32),
     }
     noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
 
     try:
         print("\nLose condition: touching any obstacle ends the run immediately."
-              "\nControls: W=gas, S=brake, A/D=steer. Close the window to quit.")
+              "\nControls: UP=gas, DOWN=brake, LEFT/RIGHT=steer. Close the window to quit.")
         play(env, keys_to_action=keys_to_action, noop=noop)
     finally:
         env.close()

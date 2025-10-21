@@ -158,9 +158,7 @@ class CarRacingWithObstacles(CarRacing, EzPickle):
             cam_angle = -float(self.car.hull.angle)
             cos_c = np.cos(cam_angle)
             sin_c = np.sin(cam_angle)
-            # Use the same camera origin as the base env (smoothed scroll),
-            # fall back to car position if not available
-            view_origin = getattr(self, 'scroll', self.car.hull.position)
+            car_pos = self.car.hull.position
             
             for obstacle in self.obstacles:
                 pos = obstacle.position
@@ -179,17 +177,17 @@ class CarRacingWithObstacles(CarRacing, EzPickle):
                     world_x = pos[0] + cos_a * v[0] - sin_a * v[1]
                     world_y = pos[1] + sin_a * v[0] + cos_a * v[1]
                     
-                    # Translate relative to camera origin (scroll), not raw car position
-                    dx = world_x - view_origin[0]
-                    dy = world_y - view_origin[1]
+                    # Translate relative to car
+                    dx = world_x - car_pos[0]
+                    dy = world_y - car_pos[1]
 
-                    # Apply camera rotation to match base env rendering
+                    # Apply camera rotation to match base env rendering (keeps obstacles visually static)
                     rx = cos_c * dx - sin_c * dy
                     ry = sin_c * dx + cos_c * dy
                     
                     # Transform to screen coordinates
                     screen_x = WINDOW_W / 2 + rx * SCALE * CURRENT_ZOOM
-                    screen_y = WINDOW_H / 4 - ry * SCALE * CURRENT_ZOOM
+                    screen_y = WINDOW_H / 4 - ry * SCALE * CURRENT_ZOOM  # Minus because screen Y goes down
                     
                     vertices.append((int(screen_x), int(screen_y)))
                 
