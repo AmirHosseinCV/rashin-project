@@ -91,19 +91,21 @@ class CarRacingObstacles(CarRacing):
         info = dict(info)
         info["num_obstacles"] = len(self.obstacle_bodies)
         info["num_collisions"] = 0
+        info["terminated_reason"] = None
         self._obstacle_collision_happened = False
         return obs, info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = super().step(action)
 
+        info = dict(info)
+        info.setdefault("terminated_reason", None)
+
         # If we touched an obstacle since the last step, end the episode now.
         if self._obstacle_collision_happened and not terminated and not truncated:
             terminated = True
-            info = dict(info)
             info["terminated_reason"] = "obstacle_collision"
 
-        info = dict(info)
         info["num_obstacles"] = len(self.obstacle_bodies)
         info["num_collisions"] = self.num_collisions
         return obs, reward, terminated, truncated, info
