@@ -323,7 +323,7 @@ if __name__ == "__main__":
     ENV_ID = "CarRacingObstacles-v0"
     LOG_DIR = "./dqn_carracing_logs/"
     MODEL_SAVE_PATH = os.path.join(LOG_DIR, "best_model")
-    TOTAL_TIMESTEPS = 500_000  # Total steps to train (250k is a quick start)
+    TOTAL_TIMESTEPS = 250_000  # Total steps to train (250k is a quick start)
     NUM_ENVS = 1              # DQN + replay buffer is memory-heavy; keep this small
     
     # Set device to GPU if available
