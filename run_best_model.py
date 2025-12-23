@@ -1,97 +1,106 @@
 #!/usr/bin/env python3
-"""
-Quick script to load and run the best DQN model saved by train.py.
-"""
-
 import argparse
+import os
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import gymnasium as gym
 import torch
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
+from gymnasium.wrappers import ResizeObservation
 
-import train
+# ایمپورت فایل موانع برای رجیستر شدن محیط
+import carracing_obstacles 
 
+# --- کپی Wrappers از فایل train برای اطمینان از یکسان بودن محیط تست و آموزش ---
+class DiscreteCarRacingAction(gym.ActionWrapper):
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+        self._actions = np.array(
+            [
+                [0.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+                [-0.5, 0.0, 0.0], [0.5, 0.0, 0.0], # Soft turns
+                [0.0, 0.8, 0.0], [0.0, 0.0, 0.8],
+                [-1.0, 0.6, 0.0], [1.0, 0.6, 0.0],
+                [-0.5, 0.6, 0.0], [0.5, 0.6, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        self.action_space = gym.spaces.Discrete(self._actions.shape[0])
+
+    def action(self, action):
+        return self._actions[int(action)]
+
+class TransposeObservation(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        obs_shape = self.observation_space.shape
+        self.observation_space = gym.spaces.Box(
+            low=0, high=255, 
+            shape=(obs_shape[2], obs_shape[0], obs_shape[1]), 
+            dtype=self.observation_space.dtype
+        )
+
+    def observation(self, observation):
+        return np.moveaxis(observation, 2, 0)
+
+# --- تابع ساخت محیط دمو ---
 def _build_demo_env(env_kwargs: dict[str, Any]) -> VecFrameStack:
     env_id = "CarRacingObstacles-v0"
-    demo_env_fn = lambda: train.apply_visual_wrappers(
-        train.make_discrete_action_env(gym.make(env_id, **env_kwargs)),
-        monitor=False,
-    )
-    env = DummyVecEnv([demo_env_fn])
-    return VecFrameStack(env, n_stack=4)
+    
+    def demo_env_fn():
+        env = gym.make(env_id, **env_kwargs)
+        env = DiscreteCarRacingAction(env) 
+        env = ResizeObservation(env, (64, 64))
+        env = TransposeObservation(env)
+        return env
 
+    env = DummyVecEnv([demo_env_fn])
+    # بسیار مهم: channels_order='first'
+    return VecFrameStack(env, n_stack=4, channels_order='first')
 
 def _parse_args():
-    parser = argparse.ArgumentParser(description="Run the best DQN model trained in train.py.")
-    parser.add_argument(
-        "--log-dir",
-        type=Path,
-        default=Path("./dqn_carracing_logs"),
-        help="Directory that contains the saved models (default: ./dqn_carracing_logs).",
-    )
-    parser.add_argument(
-        "--model-path",
-        type=Path,
-        default=None,
-        help="Optional explicit path to a saved SB3 model (.zip). Overrides --log-dir.",
-    )
-    parser.add_argument(
-        "--episodes",
-        type=int,
-        default=1,
-        help="Number of demo episodes to run (default: 1).",
-    )
-    parser.add_argument(
-        "--render-mode",
-        choices=["human", "rgb_array"],
-        default="human",
-        help="Render mode for the environment.",
-    )
-    parser.add_argument(
-        "--stochastic",
-        action="store_true",
-        help="Use stochastic policy instead of deterministic actions.",
-    )
-    parser.add_argument(
-        "--cpu",
-        action="store_true",
-        help="Force CPU even if CUDA is available.",
-    )
+    parser = argparse.ArgumentParser(description="Run the best DQN model.")
+    parser.add_argument("--log-dir", type=Path, default=Path("./dqn_carracing_logs"))
+    parser.add_argument("--model-path", type=Path, default=None)
+    parser.add_argument("--episodes", type=int, default=3)
+    parser.add_argument("--render-mode", choices=["human", "rgb_array"], default="human")
+    parser.add_argument("--stochastic", action="store_true")
+    parser.add_argument("--cpu", action="store_true")
     return parser.parse_args()
-
 
 def main() -> None:
     args = _parse_args()
-
     device = "cpu" if args.cpu else ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
+    # جستجو برای پیدا کردن مدل
     candidate_paths = []
-    if args.model_path is not None:
+    if args.model_path:
         candidate_paths.append(args.model_path)
     else:
         log_dir = args.log_dir.expanduser().resolve()
+        candidate_paths.append(log_dir / "final_model_optimized.zip") 
         candidate_paths.append(log_dir / "best_model" / "best_model.zip")
         candidate_paths.append(log_dir / "final_model.zip")
 
     model_path = next((path for path in candidate_paths if path is not None and path.exists()), None)
-    if model_path is None:
-        searched = "\n  ".join(str(path) for path in candidate_paths if path is not None)
-        raise FileNotFoundError(f"Could not find a saved model. Checked:\n  {searched}")
+    if not model_path:
+        raise FileNotFoundError(f"No model found. Checked: {candidate_paths}")
 
     print(f"Loading model from: {model_path}")
     model = DQN.load(str(model_path), device=device)
 
+    # تنظیمات محیط تست
     env_kwargs = {
         "continuous": True,
         "domain_randomize": False,
         "lap_complete_percent": 0.95,
         "max_episode_steps": 1500,
         "end_on_obstacle": True,
-        "obstacle_penalty": -20.0,
+        "obstacle_penalty": -10.0, 
         "obstacle_probability": 0.08,
         "obstacle_min_gap": 12,
         "render_mode": args.render_mode,
@@ -103,39 +112,26 @@ def main() -> None:
         for episode_idx in range(args.episodes):
             obs = demo_env.reset()
             total_reward = 0.0
-            num_collisions = 0
             step_count = 0
-
-            while True:
+            done = False
+            
+            print(f"--- Episode {episode_idx + 1} Start ---")
+            while not done:
+                # پیش‌بینی اکشن توسط مدل
                 action, _ = model.predict(obs, deterministic=not args.stochastic)
                 obs, rewards, dones, infos = demo_env.step(action)
-
+                
+                done = dones[0]
                 total_reward += float(rewards[0])
                 step_count += 1
-
-                info = infos[0]
-                if "num_collisions" in info:
-                    num_collisions = info["num_collisions"]
-
-                if bool(dones[0]):
-                    terminated = bool(info.get("terminated", False))
-                    truncated = bool(info.get("TimeLimit.truncated", False) or info.get("truncated", False))
-                    termination_reason = info.get("terminated_reason")
-                    if truncated and not termination_reason:
-                        termination_reason = "time limit"
-                    elif terminated and termination_reason is None:
-                        termination_reason = "episode ended"
-
-                    print(
-                        f"Episode {episode_idx + 1}: reward={total_reward:.2f}, "
-                        f"steps={step_count}, collisions={num_collisions}"
-                    )
-                    if termination_reason:
-                        print(f"  reason={termination_reason}")
-                    break
+                
+                if done:
+                    info = infos[0]
+                    col = info.get("num_collisions", 0)
+                    reason = info.get("terminated_reason", "End")
+                    print(f"Finished: Reward={total_reward:.2f}, Steps={step_count}, Collisions={col}, Reason={reason}")
     finally:
         demo_env.close()
-
 
 if __name__ == "__main__":
     main()
