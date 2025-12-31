@@ -100,7 +100,7 @@ if __name__ == "__main__":
     LOG_DIR = "./dqn_carracing_logs_multispeed/"
     MODEL_SAVE_PATH = os.path.join(LOG_DIR, "best_model")
     #8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-    TOTAL_TIMESTEPS = 100_000  
+    TOTAL_TIMESTEPS = 500_000  
     NUM_ENVS = 1 
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
