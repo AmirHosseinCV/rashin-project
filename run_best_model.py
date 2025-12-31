@@ -14,17 +14,25 @@ from gymnasium.wrappers import ResizeObservation
 # ایمپورت فایل موانع برای رجیستر شدن محیط
 import carracing_obstacles 
 
-# --- کپی Wrappers از فایل train برای اطمینان از یکسان بودن محیط تست و آموزش ---
+# --- کلاس اکشن اصلاح شده با قابلیت تنظیم سرعت ---
 class DiscreteCarRacingAction(gym.ActionWrapper):
-    def __init__(self, env: gym.Env):
+    def __init__(self, env: gym.Env, speed_factor: float = 1.0):
         super().__init__(env)
+        self.speed_factor = speed_factor
+        # مقادیر اصلی گاز در اینجا ضرب در speed_factor می‌شوند
         self._actions = np.array(
             [
-                [0.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-                [-0.5, 0.0, 0.0], [0.5, 0.0, 0.0], # Soft turns
-                [0.0, 0.8, 0.0], [0.0, 0.0, 0.8],
-                [-1.0, 0.6, 0.0], [1.0, 0.6, 0.0],
-                [-0.5, 0.6, 0.0], [0.5, 0.6, 0.0],
+                [0.0, 0.0, 0.0],                        # 0: Do nothing
+                [-1.0, 0.0, 0.0],                       # 1: Left (Hard)
+                [1.0, 0.0, 0.0],                        # 2: Right (Hard)
+                [-0.5, 0.0, 0.0],                       # 3: Left (Soft)
+                [0.5, 0.0, 0.0],                        # 4: Right (Soft)
+                [0.0, 0.8 * speed_factor, 0.0],         # 5: Gas
+                [0.0, 0.0, 0.8],                        # 6: Brake
+                [-1.0, 0.6 * speed_factor, 0.0],        # 7: Hard Left + Gas
+                [1.0, 0.6 * speed_factor, 0.0],         # 8: Hard Right + Gas
+                [-0.5, 0.6 * speed_factor, 0.0],        # 9: Soft Left + Gas
+                [0.5, 0.6 * speed_factor, 0.0],         # 10: Soft Right + Gas
             ],
             dtype=np.float32,
         )
@@ -47,18 +55,17 @@ class TransposeObservation(gym.ObservationWrapper):
         return np.moveaxis(observation, 2, 0)
 
 # --- تابع ساخت محیط دمو ---
-def _build_demo_env(env_kwargs: dict[str, Any]) -> VecFrameStack:
+def _build_demo_env(env_kwargs: dict[str, Any], speed_factor: float) -> VecFrameStack:
     env_id = "CarRacingObstacles-v0"
     
     def demo_env_fn():
         env = gym.make(env_id, **env_kwargs)
-        env = DiscreteCarRacingAction(env) 
+        env = DiscreteCarRacingAction(env, speed_factor=speed_factor) # اعمال فاکتور سرعت
         env = ResizeObservation(env, (64, 64))
         env = TransposeObservation(env)
         return env
 
     env = DummyVecEnv([demo_env_fn])
-    # بسیار مهم: channels_order='first'
     return VecFrameStack(env, n_stack=4, channels_order='first')
 
 def _parse_args():
@@ -69,12 +76,16 @@ def _parse_args():
     parser.add_argument("--render-mode", choices=["human", "rgb_array"], default="human")
     parser.add_argument("--stochastic", action="store_true")
     parser.add_argument("--cpu", action="store_true")
+    # پارامتر جدید برای تعیین سرعت (پیش‌فرض 1.0)
+    parser.add_argument("--speed-factor", type=float, default=1.0, 
+                        help="Factor to scale car gas/throttle (e.g., 0.5 for half speed)")
     return parser.parse_args()
 
 def main() -> None:
     args = _parse_args()
     device = "cpu" if args.cpu else ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    print(f"Current Speed Factor: {args.speed_factor}")
 
     # جستجو برای پیدا کردن مدل
     candidate_paths = []
@@ -84,16 +95,14 @@ def main() -> None:
         log_dir = args.log_dir.expanduser().resolve()
         candidate_paths.append(log_dir / "final_model_optimized.zip") 
         candidate_paths.append(log_dir / "best_model" / "best_model.zip")
-        candidate_paths.append(log_dir / "final_model.zip")
 
     model_path = next((path for path in candidate_paths if path is not None and path.exists()), None)
     if not model_path:
-        raise FileNotFoundError(f"No model found. Checked: {candidate_paths}")
+        raise FileNotFoundError(f"No model found.")
 
     print(f"Loading model from: {model_path}")
     model = DQN.load(str(model_path), device=device)
 
-    # تنظیمات محیط تست
     env_kwargs = {
         "continuous": True,
         "domain_randomize": False,
@@ -106,7 +115,8 @@ def main() -> None:
         "render_mode": args.render_mode,
     }
 
-    demo_env = _build_demo_env(env_kwargs)
+    # ارسال فاکتور سرعت به محیط
+    demo_env = _build_demo_env(env_kwargs, speed_factor=args.speed_factor)
 
     try:
         for episode_idx in range(args.episodes):
@@ -117,7 +127,6 @@ def main() -> None:
             
             print(f"--- Episode {episode_idx + 1} Start ---")
             while not done:
-                # پیش‌بینی اکشن توسط مدل
                 action, _ = model.predict(obs, deterministic=not args.stochastic)
                 obs, rewards, dones, infos = demo_env.step(action)
                 
@@ -127,9 +136,8 @@ def main() -> None:
                 
                 if done:
                     info = infos[0]
-                    col = info.get("num_collisions", 0)
                     reason = info.get("terminated_reason", "End")
-                    print(f"Finished: Reward={total_reward:.2f}, Steps={step_count}, Collisions={col}, Reason={reason}")
+                    print(f"Finished: Reward={total_reward:.2f}, Steps={step_count}, Reason={reason}")
     finally:
         demo_env.close()
 
