@@ -85,7 +85,7 @@ def make_env_instance(env_id, speed_options, **kwargs):
     env = Monitor(env)
     env = DiscreteCarRacingAction(env) # اول اکشن‌ها را تعریف می‌کنیم
     env = VariableSpeedWrapper(env, speed_options) # سپس مدیریت سرعت در ریست
-    env = ResizeObservation(env, (64, 64))
+    env = ResizeObservation(env, (128, 128))
     env = TransposeObservation(env)
     return env
 
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     # شما می‌توانید هر چند تا سرعت که می‌خواهید اینجا اضافه کنید
     # مثلا [0.4, 0.7, 1.2] باعث می‌شود ماشین در هر دور یکی از این سرعت‌ها را تجربه کند
     #88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-    SPEED_OPTIONS = [0.5] 
+    SPEED_OPTIONS = [0.2 ,0.5 , 1]
 
     ENV_ID = "CarRacingObstacles-v0"
     LOG_DIR = "./dqn_carracing_logs_multispeed/"
@@ -140,7 +140,7 @@ if __name__ == "__main__":
         vec_env,
         verbose=1,
         device=device,
-        buffer_size=100_000,
+        buffer_size=50_000,
         learning_rate=1e-4,
         batch_size=64,
         learning_starts=50_000,

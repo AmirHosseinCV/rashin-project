@@ -61,7 +61,7 @@ def _build_demo_env(env_kwargs: dict[str, Any], speed_factor: float) -> VecFrame
     def demo_env_fn():
         env = gym.make(env_id, **env_kwargs)
         env = DiscreteCarRacingAction(env, speed_factor=speed_factor) # اعمال فاکتور سرعت
-        env = ResizeObservation(env, (64, 64))
+        env = ResizeObservation(env, (128, 128))
         env = TransposeObservation(env)
         return env
 
