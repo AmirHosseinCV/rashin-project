@@ -85,7 +85,7 @@ def make_env_instance(env_id, speed_options, **kwargs):
     env = Monitor(env)
     env = DiscreteCarRacingAction(env) # اول اکشن‌ها را تعریف می‌کنیم
     env = VariableSpeedWrapper(env, speed_options) # سپس مدیریت سرعت در ریست
-    env = ResizeObservation(env, (128, 128))
+    env = ResizeObservation(env, (64, 64))
     env = TransposeObservation(env)
     return env
 
